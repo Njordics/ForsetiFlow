@@ -116,6 +116,9 @@ def init_db():
         pass
     db.commit()
 
+with app.app_context():
+    init_db()
+
 
 def require_project(project_id: str):
     db = get_db()
@@ -628,4 +631,5 @@ if __name__ == "__main__":
     with app.app_context():
         init_db()
     app.run(host="0.0.0.0", debug=True)
+
 
