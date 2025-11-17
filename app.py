@@ -41,6 +41,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL,
             title TEXT NOT NULL,
+            description TEXT DEFAULT '',
             status TEXT NOT NULL DEFAULT 'todo',
             due_date TEXT DEFAULT '',
             resource_id INTEGER DEFAULT NULL,
@@ -95,6 +96,10 @@ def init_db():
     )
     try:
         db.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN description TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
     try:
@@ -175,7 +180,7 @@ def list_tasks(project_id: str):
     db = get_db()
     rows = db.execute(
         """
-        SELECT id, project_id, title, status, due_date, parent_id, resource_id
+        SELECT id, project_id, title, description, status, due_date, parent_id, resource_id
         FROM tasks
         WHERE project_id = ?
         ORDER BY id
@@ -197,6 +202,7 @@ def create_task(project_id: str):
     if status not in {"todo", "in-progress", "done", "later"}:
         status = "todo"
     due_date = (data.get("due_date") or "").strip()
+    description = (data.get("description") or "").strip()
     parent_id = data.get("parent_id")
     if parent_id in ("", None):
         parent_id = None
@@ -206,8 +212,8 @@ def create_task(project_id: str):
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO tasks (project_id, title, status, due_date, parent_id, resource_id) VALUES (?, ?, ?, ?, ?, ?)",
-        (project_id, title, status, due_date, parent_id, resource_id),
+        "INSERT INTO tasks (project_id, title, description, status, due_date, parent_id, resource_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (project_id, title, description, status, due_date, parent_id, resource_id),
     )
     db.commit()
     task_id = cur.lastrowid
@@ -217,6 +223,7 @@ def create_task(project_id: str):
                 "id": task_id,
                 "project_id": int(project_id),
                 "title": title,
+                "description": description,
                 "status": status,
                 "due_date": due_date,
                 "resource_id": resource_id,
@@ -232,7 +239,7 @@ def update_task(task_id: str):
     init_db()
     db = get_db()
     task = db.execute(
-        "SELECT id, project_id, title, status, due_date, parent_id, resource_id FROM tasks WHERE id = ?",
+        "SELECT id, project_id, title, description, status, due_date, parent_id, resource_id FROM tasks WHERE id = ?",
         (task_id,),
     ).fetchone()
     if not task:
@@ -247,6 +254,9 @@ def update_task(task_id: str):
         status = (data.get("status") or "").strip().lower()
         if status in {"todo", "in-progress", "done", "later"}:
             db.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, task_id))
+    if "description" in data:
+        description = (data.get("description") or "").strip()
+        db.execute("UPDATE tasks SET description = ? WHERE id = ?", (description, task_id))
     if "due_date" in data:
         due_date = (data.get("due_date") or "").strip()
         db.execute("UPDATE tasks SET due_date = ? WHERE id = ?", (due_date, task_id))
@@ -263,7 +273,7 @@ def update_task(task_id: str):
 
     db.commit()
     updated = db.execute(
-        "SELECT id, project_id, title, status, due_date, parent_id, resource_id FROM tasks WHERE id = ?",
+        "SELECT id, project_id, title, description, status, due_date, parent_id, resource_id FROM tasks WHERE id = ?",
         (task_id,),
     ).fetchone()
     return jsonify(dict(updated))

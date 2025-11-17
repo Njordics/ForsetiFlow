@@ -62,7 +62,7 @@
     const title = node.querySelector(".kanban-title");
     const parent = node.querySelector(".kanban-parent");
     const resourceSel = node.querySelector(".task-resource");
-    const status = node.querySelector(".task-status");
+    const desc = node.querySelector(".task-desc");
     const due = node.querySelector(".task-due");
     const saveBtn = node.querySelector(".task-save");
     const deleteBtn = node.querySelector(".task-delete");
@@ -72,8 +72,8 @@
 
     title.textContent = task.title;
     parent.textContent = task.parent_id ? `Parent #${task.parent_id}` : "";
-    status.value = task.status;
     setResourceOptions(resourceSel, task.resource_id);
+    if (desc) desc.value = task.description || "";
     if (task.due_date) {
       due.value = task.due_date;
       due.classList.remove("no-due");
@@ -89,9 +89,9 @@
     saveBtn.addEventListener("click", async () => {
       try {
         const payload = {
-          status: status.value,
           due_date: due.value,
           resource_id: resourceSel.value || null,
+          description: desc ? desc.value : "",
         };
         await window.api(`/api/tasks/${task.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         saveBtn.textContent = "Saved";
@@ -147,6 +147,10 @@
       if (String(selectedId || "") === String(res.id)) o.selected = true;
       selectEl.append(o);
     });
+    if (!selectEl.value) {
+      const admin = resources.find((r) => (r.name || "").toLowerCase() === "admin");
+      if (admin) selectEl.value = String(admin.id);
+    }
   }
 
   Object.entries(columns).forEach(([status, col]) => {
