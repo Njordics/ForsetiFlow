@@ -1,0 +1,26 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Environments
+.venv/
+env/
+venv/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+
+# Local config/secrets
+.env
+
+# SQLite or local db files
+*.sqlite
+*.sqlite3
+
+# Flask instance folder
+instance/

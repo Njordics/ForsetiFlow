@@ -1,0 +1,128 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Manager</title>
+  <link rel="stylesheet" href="/static/main.css" />
+</head>
+<body>
+  <div class="gradient-bg"></div>
+  <header class="topbar">
+  </header>
+
+  <section class="hero solo">
+    <div class="hero-copy">
+      <p class="eyebrow">Private Project Management</p>
+      <h1>
+        Visualize your Projects<br />
+        and capture the dream
+      </h1>
+      <p class="lede">A modern workspace to track projects and tasks with clarity.</p>
+      <div class="hero-stats">
+        <div class="stat">
+          <span>Projects</span>
+          <strong id="stat-projects">0</strong>
+        </div>
+        <div class="stat">
+          <span>Tasks</span>
+          <strong id="stat-tasks">0</strong>
+        </div>
+        <div class="stat">
+          <span>Completion</span>
+          <strong id="stat-progress">-</strong>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main class="workspace">
+    <section class="panel form-panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Create</p>
+          <h2>New Project</h2>
+        </div>
+        <button id="reload" class="pill ghost">Refresh</button>
+      </div>
+      <form id="project-form" class="form-grid">
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required placeholder="Project name" />
+        </label>
+        <label>
+          <span>Description</span>
+          <textarea name="description" rows="2" placeholder="Optional description"></textarea>
+        </label>
+        <button type="submit" class="pill primary">Create Project</button>
+      </form>
+    </section>
+
+    <section class="panel projects-panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Portfolio</p>
+          <h2>Projects</h2>
+        </div>
+      </div>
+      <div id="projects"></div>
+    </section>
+  </main>
+
+  <template id="project-template">
+    <article class="project glass">
+      <div class="project-head">
+        <div>
+          <h3 class="project-title"></h3>
+          <p class="project-desc"></p>
+        </div>
+        <span class="project-id"></span>
+      </div>
+      <form class="task-form form-grid" autocomplete="off">
+        <input type="hidden" name="project_id" />
+        <label>
+          <span>Task</span>
+          <input type="text" name="title" required placeholder="Add a task" />
+        </label>
+        <label>
+          <span>Due</span>
+          <input type="date" name="due_date" />
+        </label>
+        <label>
+          <span>Status</span>
+          <select name="status">
+            <option value="todo">To do</option>
+            <option value="in-progress">In progress</option>
+            <option value="done">Done</option>
+          </select>
+        </label>
+        <button type="submit" class="pill primary">Add Task</button>
+      </form>
+      <div class="task-table">
+        <div class="task-row task-row--head">
+          <span>Task</span>
+          <span>Status</span>
+          <span>Due</span>
+          <span>Actions</span>
+        </div>
+        <div class="task-list"></div>
+      </div>
+    </article>
+  </template>
+
+  <template id="task-row-template">
+    <div class="task-row">
+      <span class="task-title"></span>
+      <select class="task-status">
+        <option value="todo">To do</option>
+        <option value="in-progress">In progress</option>
+        <option value="done">Done</option>
+      </select>
+      <input class="task-due" type="date" />
+      <button class="task-save pill ghost">Save</button>
+    </div>
+  </template>
+
+  <script src="/static/main.js"></script>
+</body>
+</html>
