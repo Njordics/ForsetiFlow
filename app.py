@@ -1,15 +1,22 @@
 import os
+import shutil
 import sqlite3
+import tempfile
 from flask import Flask, render_template, request, jsonify, abort, g
 
 app = Flask(__name__)
 
-# Location for the SQLite file; override PROJECT_DATA_DIR to move it to a writable path on the server.
-DATA_DIR = os.environ.get("PROJECT_DATA_DIR") or app.instance_path
+# Location for the SQLite file. Defaults to a user-writable folder so clones don't hit permission errors.
+_default_home = os.path.join(os.path.expanduser("~"), ".project_manager_data")
+_default_tmp = os.path.join(tempfile.gettempdir(), "project_manager_data")
+DATA_DIR = os.environ.get("PROJECT_DATA_DIR") or _default_home
+if not os.access(os.path.dirname(DATA_DIR) or ".", os.W_OK):
+    DATA_DIR = _default_tmp
 os.makedirs(DATA_DIR, exist_ok=True)
 
 DB_FILENAME = os.environ.get("PROJECT_DB", "project_manager.sqlite")
 DB_PATH = os.path.join(DATA_DIR, DB_FILENAME)
+SEED_DB_PATH = os.path.join(app.instance_path, DB_FILENAME)
 
 
 def ensure_db_permissions():
@@ -25,8 +32,18 @@ def ensure_db_permissions():
             pass
 
 
+def ensure_db_exists():
+    """If DB doesn't exist in DATA_DIR, seed it from packaged instance copy when available."""
+    if not os.path.exists(DB_PATH) and os.path.exists(SEED_DB_PATH):
+        try:
+            shutil.copy2(SEED_DB_PATH, DB_PATH)
+        except OSError:
+            pass
+
+
 def get_db():
     if "db" not in g:
+        ensure_db_exists()
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         g.db = conn
