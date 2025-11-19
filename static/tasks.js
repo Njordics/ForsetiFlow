@@ -256,6 +256,120 @@
     });
   }
 
+  function bindKanbanAddButtons() {
+    const buttons = document.querySelectorAll(".add-task-btn");
+    if (!buttons.length) return;
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => openQuickTaskModal(btn.dataset.status || "todo"));
+    });
+  }
+
+  function statusLabel(status) {
+    const labels = {
+      todo: "To do",
+      "in-progress": "In progress",
+      done: "Done",
+      later: "Later",
+    };
+    return labels[status] || status;
+  }
+
+  async function ensureResourceCache() {
+    if (resources.length) return resources;
+    try {
+      const fresh = await window.api(`/api/resources/${window.PROJECT_ID}`);
+      resources = Array.isArray(fresh) ? fresh : [];
+    } catch (err) {
+      resources = [];
+    }
+    return resources;
+  }
+
+  function populateQuickModalResources(selectEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = '<option value="">Unassigned</option>';
+    resources.forEach((res) => {
+      const opt = document.createElement("option");
+      opt.value = res.id;
+      opt.textContent = `${res.name} (${res.status})`;
+      selectEl.append(opt);
+    });
+  }
+
+  async function openQuickTaskModal(targetStatus) {
+    const status = targetStatus || "todo";
+    const modal = document.createElement("div");
+    modal.className = "modal-backdrop";
+    modal.innerHTML = `
+      <div class="modal">
+        <header>
+          <h3>Add task</h3>
+          <button class="pill ghost tiny" type="button" data-action="close">Close</button>
+        </header>
+        <form class="form-grid" autocomplete="off">
+          <label>
+            <span>Name</span>
+            <input type="text" name="title" required placeholder="Task name" />
+          </label>
+          <label>
+            <span>Status</span>
+            <input type="text" value="${statusLabel(status)}" readonly />
+            <input type="hidden" name="status" value="${status}" />
+          </label>
+          <label>
+            <span>Description</span>
+            <textarea name="description" rows="3" placeholder="Optional description"></textarea>
+          </label>
+          <label>
+            <span>Assignee</span>
+            <select name="resource_id" class="quick-task-resource">
+              <option value="">Loading...</option>
+            </select>
+          </label>
+          <label>
+            <span>Due date</span>
+            <input type="date" name="due_date" />
+          </label>
+          <div class="actions">
+            <button type="button" class="pill ghost" data-action="discard">Discard</button>
+            <button type="submit" class="pill primary">Save</button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal || (e.target instanceof HTMLElement && e.target.dataset.action === "close")) {
+        closeModal();
+      }
+    });
+    modal.querySelector('[data-action="discard"]')?.addEventListener("click", closeModal);
+
+    const formEl = modal.querySelector("form");
+    const resourceSelect = modal.querySelector(".quick-task-resource");
+    await ensureResourceCache();
+    populateQuickModalResources(resourceSelect);
+
+    formEl.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(formEl);
+      const title = (formData.get("title") || "").trim();
+      if (!title) return;
+      const payload = Object.fromEntries(formData.entries());
+      payload.description = payload.description || "";
+      payload.due_date = payload.due_date || "";
+      if (!payload.resource_id) payload.resource_id = null;
+      try {
+        await window.api(`/api/projects/${window.PROJECT_ID}/tasks`, { method: "POST", body: JSON.stringify(payload) });
+        closeModal();
+        await loadTasks();
+      } catch (err) {
+        alert(`Unable to add task: ${err.message}`);
+      }
+    });
+  }
+
   function handleResourceUpdate(list) {
     resources = list || [];
     setResourceOptions(taskResourceFormSelect, "");
@@ -269,5 +383,6 @@
     loadProject();
     loadTasks();
     setupTaskForm();
+    bindKanbanAddButtons();
   };
 })();

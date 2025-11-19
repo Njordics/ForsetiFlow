@@ -52,7 +52,6 @@
     const addToolBtnTop = document.getElementById("add-tool-btn-top");
     const emptyState = document.getElementById("tools-empty");
     const sections = document.getElementById("tool-sections");
-    const quickTaskBtn = document.getElementById("quick-task-btn");
     const chips = [document.getElementById("tool-list"), document.getElementById("tool-list-top")];
     const toolOptions = [
       { key: "tasks", label: "Task form" },
@@ -507,116 +506,6 @@
     });
   }
 
-  function openQuickTaskModal() {
-    const triggerStatus = openQuickTaskModal.targetStatus || "todo";
-    openQuickTaskModal.targetStatus = null;
-
-    const modal = document.createElement("div");
-    modal.className = "modal-backdrop";
-    modal.innerHTML = `
-      <div class="modal">
-        <header>
-          <h3>Add task</h3>
-          <button class="pill ghost tiny" type="button" id="quick-task-close">Close</button>
-        </header>
-        <form id="quick-task-form" class="form-grid">
-          <label>
-            <span>Name</span>
-            <input type="text" name="title" required placeholder="Task name" />
-          </label>
-          <label>
-            <span>Status</span>
-            <input type="text" name="status" value="${triggerStatus}" readonly />
-          </label>
-          <label>
-            <span>Description</span>
-            <textarea name="description" rows="3" placeholder="Optional description"></textarea>
-          </label>
-          <label>
-            <span>Assignee</span>
-            <select name="resource_id" id="quick-task-resource">
-              <option value="">Unassigned</option>
-            </select>
-          </label>
-          <label>
-            <span>Due date</span>
-            <input type="date" name="due_date" />
-          </label>
-          <div class="actions">
-            <button type="button" class="pill ghost" id="quick-task-discard">Discard</button>
-            <button type="submit" class="pill primary">Save</button>
-          </div>
-        </form>
-      </div>`;
-    document.body.appendChild(modal);
-
-    function close() {
-      modal.remove();
-    }
-
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) close();
-    });
-    modal.querySelector("#quick-task-close")?.addEventListener("click", close);
-    modal.querySelector("#quick-task-discard")?.addEventListener("click", close);
-
-    populateQuickTaskResources(modal.querySelector("#quick-task-resource"));
-
-    const form = modal.querySelector("#quick-task-form");
-    if (form) {
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const data = new FormData(form);
-        const title = (data.get("title") || "").trim();
-        if (!title) return;
-        const payload = Object.fromEntries(data.entries());
-        if (!payload.resource_id) payload.resource_id = null;
-        try {
-          await window.api(`/api/projects/${window.PROJECT_ID}/tasks`, {
-            method: "POST",
-            body: JSON.stringify(payload),
-          });
-          close();
-        } catch (err) {
-          alert(`Unable to add task: ${err.message}`);
-        }
-      });
-    }
-  }
-
-  async function populateQuickTaskResources(selectEl) {
-    if (!selectEl) return;
-    try {
-      const resources = await window.api(`/api/resources/${window.PROJECT_ID}`);
-      selectEl.innerHTML = '<option value="">Unassigned</option>';
-      resources.forEach((r) => {
-        const opt = document.createElement("option");
-        opt.value = r.id;
-        opt.textContent = `${r.name} (${r.status})`;
-        selectEl.append(opt);
-      });
-    } catch (e) {
-      // ignore
-    }
-  }
-
   // Default legacy initializer
   window.initProjectPage = window.initProjectDashboard;
 })();
-
-
-
-
-
-
-
-
-    document.querySelectorAll(".add-task-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const status = btn.dataset.status || "todo";
-        openQuickTaskModal.targetStatus = status;
-        openQuickTaskModal();
-      });
-    });
-
-
