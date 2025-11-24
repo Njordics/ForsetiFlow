@@ -112,3 +112,14 @@ async function loadTaskMetrics(projectId, stats) {
 document.getElementById("reload").addEventListener("click", loadProjects);
 
 loadProjects();
+
+const collapseControl = document.getElementById("collapse-form");
+const formPanel = document.querySelector(".form-panel");
+if (collapseControl && formPanel) {
+  collapseControl.addEventListener("click", () => {
+    const expanded = collapseControl.getAttribute("aria-expanded") === "true";
+    collapseControl.textContent = expanded ? "Expand" : "Collapse";
+    collapseControl.setAttribute("aria-expanded", String(!expanded));
+    formPanel.classList.toggle("collapsed", expanded);
+  });
+}

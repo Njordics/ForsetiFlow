@@ -8,6 +8,9 @@
 </head>
 <body>
   <div class="gradient-bg"></div>
+  <a class="brand-logo" href="/">
+    <span>Forseti Flow</span>
+  </a>
 
   <main class="workspace project-page overview-page">
     <section class="panel project-hero">
@@ -18,8 +21,10 @@
           <a class="pill primary" href="/projects/{{ project.id }}/dashboard?flow=full">Open Dashboard</a>
         </div>
       </div>
-      <h1>{{ project.name }}</h1>
-      <p class="project-desc">{{ project.description }}</p>
+      <div class="project-title-desc">
+        <h1>{{ project.name }}</h1>
+        <p class="project-desc">{{ project.description }}</p>
+      </div>
       <div class="project-metrics overview-metrics">
         <div class="metric">
           <span>Tasks</span>

@@ -34,6 +34,40 @@ body {
   z-index: 0;
 }
 
+.brand-logo {
+  position: fixed;
+  top: 16px;
+  left: 24px;
+  z-index: 5;
+  width: 120px;
+  height: auto;
+  padding: 8px;
+  background: rgba(6, 9, 22, 0.6);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+.brand-logo img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.brand-logo span {
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+  color: #e0e7ff;
+  white-space: nowrap;
+  text-transform: uppercase;
+  padding: 0 6px;
+  font-weight: 600;
+}
+
 .login-page {
   position: relative;
   z-index: 1;
@@ -284,6 +318,42 @@ body {
   padding: 32px;
   border-radius: 30px;
   box-shadow: 0 28px 60px rgba(5, 9, 23, 0.75);
+  position: relative;
+  overflow: hidden;
+}
+
+.form-panel.collapsed .form-grid {
+  display: none;
+}
+
+.form-panel.collapsed {
+  padding-bottom: 18px;
+}
+
+.panel-head-controls {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 20px;
+  background: rgba(7, 12, 36, 0.5);
+}
+
+.pill.tiny {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.panel-head-controls .pill {
+  min-width: 90px;
+  padding: 6px 18px;
+  border-radius: 18px;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0.2px;
 }
 
 .form-panel h2 {
@@ -293,11 +363,11 @@ body {
 
 .form-grid {
   display: grid;
-  grid-template-columns: minmax(200px, 0.75fr) 2fr;
+  grid-template-columns: minmax(140px, 0.25fr) 1fr;
   grid-template-areas:
     "name description"
     "actions actions";
-  gap: 6px;
+  gap: 4px;
   align-items: start;
 }
 
@@ -330,17 +400,24 @@ body {
 }
 
 .form-grid textarea {
-  min-height: 120px;
+  min-height: 48px;
   resize: vertical;
 }
 
 .form-grid .name-field {
   grid-area: name;
-  max-width: 260px;
 }
 
 .form-grid .desc-field {
   grid-area: description;
+}
+
+.form-grid .desc-field textarea {
+  min-height: 60px;
+}
+
+.form-grid textarea {
+  min-height: 120px;
 }
 
 .pilots {
@@ -380,6 +457,24 @@ body {
 .project-page h1 {
   margin: 0 0 6px 0;
   font-size: 32px;
+}
+
+.project-title-desc {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.project-title-desc h1 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.project-title-desc .project-desc {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
 }
 
 .project-header {
