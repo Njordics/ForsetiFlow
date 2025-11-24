@@ -54,6 +54,10 @@ Data persists in `./data` directory. See environment variables below for configu
 
 Set `DEFAULT_ADMIN_PHONE` and `DEFAULT_ADMIN_COUNTRY` (plus optional `DEFAULT_ADMIN_EMAIL`) so the app can seed the administrator account with `DEFAULT_ADMIN_USERNAME`/`DEFAULT_ADMIN_PASSWORD` (defaults to `admin`/`forseti`). When the database contains only that default admin, the login page shows a simple username/password form (no Authy) that immediately redirects to `/account` so the admin can rotate credentials. After the admin changes their username/password, the normal Authy-backed flow resumes; once any user exists you must already be signed in (session cookie) before creating more users via `POST /api/users` using JSON such as `{ "username": "jdoe", "password": "secret", "phone_number": "1234567890", "country_code": "1", "email": "optional@example.com", "force_password_change": true }`.
 
+### Default Admin Login
+
+If there is only the seeded admin user (created from the environment defaults) and it still requires credential rotation, the login UI skips Authy and simply asks for the admin username/password. Successful sign-in immediately redirects to `/account` so the admin can pick a new username and/or password before the Authy-based flow becomes active again.
+
 ## Authentication flow
 
 1. Submit credentials via `POST /api/auth/start` (handled automatically by the login UI) to receive a login token and prompt Authy to send a code to the stored phone number. This endpoint expects `identifier` (username or email) and `password`.
