@@ -293,11 +293,11 @@ body {
 
 .form-grid {
   display: grid;
-  grid-template-columns: minmax(200px, 0.9fr) 1.6fr;
+  grid-template-columns: minmax(200px, 0.8fr) 1.8fr;
   grid-template-areas:
     "name description"
     "actions actions";
-  gap: 18px;
+  gap: 10px;
   align-items: start;
 }
 
