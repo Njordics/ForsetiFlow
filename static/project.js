@@ -56,8 +56,7 @@
     const cardList = document.getElementById("tool-card-list");
     const inlineWrapper = document.getElementById("inline-tool-wrapper");
     const chips = [document.getElementById("tool-list"), document.getElementById("tool-list-top")];
-    const flowMode = new URLSearchParams(window.location.search).get("flow") || "min";
-    const isFullFlow = flowMode === "full";
+    const isFullFlow = true;
     const toolOptions = [
       { key: "tasks", label: "Task form" },
       { key: "kanban", label: "Kanban board" },

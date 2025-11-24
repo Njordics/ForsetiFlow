@@ -81,24 +81,8 @@ async function renderProject(project, stats) {
   node.querySelector(".metric-todo").textContent = todo;
   node.querySelector(".metric-pct").textContent = pct;
 
-  const flowSelect = node.querySelector(".flow-select");
-  const flows = {
-    min: `/projects/${project.id}/dashboard?flow=min`,
-    full: `/projects/${project.id}/tool/kanban`,
-  };
-  const prefKey = `pm_flow_pref_${project.id}`;
-  const saved = localStorage.getItem(prefKey) || "min";
-  if (flowSelect) {
-    flowSelect.value = flows[saved] ? saved : "min";
-    flowSelect.addEventListener("change", () => {
-      const choice = flowSelect.value;
-      localStorage.setItem(prefKey, choice);
-      if (link) link.href = flows[choice] || flows.min;
-    });
-  }
   if (link) {
-    const initialChoice = flowSelect ? flowSelect.value : saved;
-    link.href = flows[initialChoice] || flows.min;
+    link.href = `/projects/${project.id}/tool/kanban`;
   }
 
   projectsEl.appendChild(node);
