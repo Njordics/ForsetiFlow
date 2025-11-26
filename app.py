@@ -1,11 +1,13 @@
+import base64
+import io
 import os
 import secrets
 import shutil
 import sqlite3
 import tempfile
-import time
 
-import requests
+import pyotp
+import qrcode
 from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, render_template, request, jsonify, abort, g, session, redirect, url_for
@@ -82,17 +84,12 @@ DB_FILENAME = os.environ.get("PROJECT_DB", "project_manager.sqlite")
 DB_PATH = os.path.join(DATA_DIR, DB_FILENAME)
 SEED_DB_PATH = os.path.join(app.instance_path, DB_FILENAME)
 
-def _int_env(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return default
-
-AUTHY_API_KEY = os.environ.get("AUTHY_API_KEY")
-AUTHY_API_URL = os.environ.get("AUTHY_API_URL") or "https://api.authy.com/protected/json"
-AUTHY_VERIFICATION_VIA = os.environ.get("AUTHY_VERIFICATION_VIA") or "sms"
-AUTHY_CODE_LENGTH = _int_env("AUTHY_CODE_LENGTH", 6)
-LOGIN_TOKEN_TTL = _int_env("LOGIN_TOKEN_TTL", 300)
+DEFAULT_ADMIN_USERNAME = os.environ.get("DEFAULT_ADMIN_USERNAME") or "forseti"
+DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD") or "flow"
+DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL")
+DEFAULT_ADMIN_PHONE = os.environ.get("DEFAULT_ADMIN_PHONE") or "0000000000"
+DEFAULT_ADMIN_COUNTRY = os.environ.get("DEFAULT_ADMIN_COUNTRY") or "1"
+MFA_ISSUER = os.environ.get("MFA_ISSUER") or "Forseti Flow"
 
 
 def ensure_db_permissions():
@@ -125,72 +122,6 @@ def get_db():
         g.db = conn
         ensure_db_permissions()
     return g.db
-
-
-def mask_phone_number(phone: str) -> str:
-    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
-    if len(digits) <= 4:
-        return phone or ""
-    return f"••••{digits[-4:]}"
-
-
-def start_phone_verification(phone_number: str, country_code: str) -> dict:
-    if not AUTHY_API_KEY:
-        return {"success": False, "message": "Two-factor authentication is not configured."}
-    payload = {
-        "phone_number": phone_number,
-        "country_code": country_code,
-        "via": AUTHY_VERIFICATION_VIA,
-        "code_length": AUTHY_CODE_LENGTH,
-    }
-    headers = {"X-Authy-API-Key": AUTHY_API_KEY}
-    try:
-        response = requests.post(
-            f"{AUTHY_API_URL}/phones/verification/start",
-            data=payload,
-            headers=headers,
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as exc:
-        message = str(exc)
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            try:
-                message = resp.json().get("message") or resp.text or message
-            except ValueError:
-                message = resp.text or message
-        return {"success": False, "message": message}
-
-
-def check_phone_verification(phone_number: str, country_code: str, code: str) -> dict:
-    if not AUTHY_API_KEY:
-        return {"success": False, "message": "Two-factor authentication is not configured."}
-    params = {
-        "phone_number": phone_number,
-        "country_code": country_code,
-        "verification_code": code,
-    }
-    headers = {"X-Authy-API-Key": AUTHY_API_KEY}
-    try:
-        response = requests.get(
-            f"{AUTHY_API_URL}/phones/verification/check",
-            params=params,
-            headers=headers,
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as exc:
-        message = str(exc)
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            try:
-                message = resp.json().get("message") or resp.text or message
-            except ValueError:
-                message = resp.text or message
-        return {"success": False, "message": message}
 
 
 def _normalize_username(raw: str) -> str:
@@ -266,6 +197,52 @@ def _get_user_count() -> int:
     db = get_db()
     row = db.execute("SELECT COUNT(*) as total FROM users").fetchone()
     return row["total"] if row else 0
+
+
+def _generate_mfa_qr(secret: str, label: str) -> str:
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(name=label[:64], issuer_name=MFA_ISSUER)
+    qr = qrcode.make(provisioning_uri)
+    buffer = io.BytesIO()
+    qr.save(buffer, format="PNG")
+    return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode('ascii')}"
+
+
+def _ensure_default_user(db):
+    password_hash = generate_password_hash(DEFAULT_ADMIN_PASSWORD)
+    db.execute("DELETE FROM users WHERE username != ?", (DEFAULT_ADMIN_USERNAME,))
+    existing = db.execute("SELECT id FROM users WHERE username = ?", (DEFAULT_ADMIN_USERNAME,)).fetchone()
+    if existing:
+        db.execute(
+            """
+            UPDATE users
+            SET password_hash = ?, phone_number = ?, country_code = ?, email = ?, must_update_credentials = 1, is_admin = 1, mfa_secret = ''
+            WHERE username = ?
+            """,
+            (
+                password_hash,
+                DEFAULT_ADMIN_PHONE,
+                DEFAULT_ADMIN_COUNTRY,
+                DEFAULT_ADMIN_EMAIL or None,
+                DEFAULT_ADMIN_USERNAME,
+            ),
+        )
+        return existing["id"]
+        user_id = cur.lastrowid
+        return user_id
+    else:
+        db.execute(
+            "INSERT INTO users (email, username, password_hash, phone_number, country_code, must_update_credentials, is_admin, mfa_secret) VALUES (?, ?, ?, ?, ?, 1, 1, '')",
+            (
+                DEFAULT_ADMIN_EMAIL or None,
+                DEFAULT_ADMIN_USERNAME,
+                password_hash,
+                DEFAULT_ADMIN_PHONE,
+                DEFAULT_ADMIN_COUNTRY,
+            ),
+        )
+        user_id = db.execute("SELECT id FROM users WHERE username = ?", (DEFAULT_ADMIN_USERNAME,)).fetchone()["id"]
+        return user_id
 
 
 def login_required(view):
@@ -378,19 +355,8 @@ def init_db():
             country_code TEXT NOT NULL,
             must_update_credentials INTEGER NOT NULL DEFAULT 0,
             is_admin INTEGER NOT NULL DEFAULT 0,
+            mfa_secret TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS login_attempts (
-            token TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            created_at INTEGER NOT NULL,
-            expires_at INTEGER NOT NULL,
-            verified INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
         """
     )
@@ -431,10 +397,25 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     try:
+        db.execute("ALTER TABLE users ADD COLUMN mfa_secret TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
         db.execute("UPDATE users SET must_update_credentials = 0 WHERE must_update_credentials IS NULL")
     except sqlite3.OperationalError:
         pass
     db.commit()
+    _ensure_default_user(db)
+    db.commit()
+
+
+@app.errorhandler(403)
+def handle_forbidden(e):
+    if request.is_json or request.headers.get("Accept", "").startswith("application/json"):
+        response = jsonify({"error": str(e.description or e)})
+        response.status_code = 403
+        return response
+    return e
 
 with app.app_context():
     init_db()
@@ -454,7 +435,7 @@ def get_user_by_identifier(identifier: str):
     db = get_db()
     return db.execute(
         """
-        SELECT id, email, username, password_hash, phone_number, country_code, must_update_credentials
+        SELECT id, email, username, password_hash, phone_number, country_code, must_update_credentials, mfa_secret
         FROM users
         WHERE username = ? OR (email IS NOT NULL AND LOWER(email) = LOWER(?))
         """,
@@ -466,7 +447,7 @@ def get_user_by_id(user_id: int):
     db = get_db()
     return db.execute(
         """
-        SELECT id, email, username, phone_number, country_code, must_update_credentials
+        SELECT id, email, username, phone_number, country_code, must_update_credentials, mfa_secret
         FROM users
         WHERE id = ?
         """,
@@ -474,15 +455,23 @@ def get_user_by_id(user_id: int):
     ).fetchone()
 
 
+def _generate_reset_pin():
+    return "{:06d}".format(secrets.randbelow(1_000_000))
+
+
 def render_login_view():
     init_db()
     oauth_error = session.pop("oauth_error", None)
     allow_registration = _get_user_count() == 0
+    reset_pin = session.get("reset_pin") or _generate_reset_pin()
+    session["reset_pin"] = reset_pin
+    app.logger.info("Reset pin for login session: %s", reset_pin)
     return render_template(
         "login.html",
         oauth_providers=_get_available_oauth_providers(),
         oauth_error=oauth_error,
         allow_registration=allow_registration,
+        reset_pin=reset_pin,
     )
 
 
@@ -603,11 +592,24 @@ def account_page():
     if not user:
         abort(404, "User not found.")
     error = None
+    mfa_setup_required = not bool(user["mfa_secret"])
+    pending_mfa_secret = session.get("pending_mfa_secret")
+    if not mfa_setup_required and "pending_mfa_secret" in session:
+        session.pop("pending_mfa_secret", None)
+        pending_mfa_secret = None
+    if mfa_setup_required and not pending_mfa_secret:
+        pending_mfa_secret = pyotp.random_base32()
+        session["pending_mfa_secret"] = pending_mfa_secret
+    mfa_qr = None
+    if mfa_setup_required and pending_mfa_secret:
+        label = (user["email"] or user["username"] or DEFAULT_ADMIN_USERNAME)
+        mfa_qr = _generate_mfa_qr(pending_mfa_secret, label)
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         email = (request.form.get("email") or "").strip()
         password = request.form.get("password") or ""
         confirm_password = request.form.get("confirm_password") or ""
+        totp_code = (request.form.get("totp_code") or "").strip()
 
         if not username:
             error = "Username is required."
@@ -631,17 +633,38 @@ def account_page():
             updates.append("must_update_credentials = 0")
             values.append(user["id"])
 
-            if updates:
+            mfa_ready = True
+            if mfa_setup_required:
+                if not pending_mfa_secret:
+                    error = "Unable to generate an authenticator secret. Reload the page and try again."
+                    mfa_ready = False
+                elif not totp_code:
+                    error = "Enter the authenticator code from your authenticator app."
+                    mfa_ready = False
+                elif not pyotp.TOTP(pending_mfa_secret).verify(totp_code, valid_window=1):
+                    error = "Invalid authenticator code."
+                    mfa_ready = False
+                else:
+                    updates.append("mfa_secret = ?")
+                    values.append(pending_mfa_secret)
+            if updates and mfa_ready:
                 try:
                     db = get_db()
                     db.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", tuple(values))
                     db.commit()
                     session.pop("needs_update", None)
+                    session.pop("pending_mfa_secret", None)
                     return redirect(url_for("index_page"))
                 except sqlite3.IntegrityError:
                     error = "That username or email is already in use."
     return render_template(
-        "account.html", user=user, error=error, requires_update=user["must_update_credentials"]
+        "account.html",
+        user=user,
+        error=error,
+        requires_update=user["must_update_credentials"],
+        mfa_setup_required=mfa_setup_required,
+        mfa_qr=mfa_qr,
+        mfa_secret=pending_mfa_secret,
     )
 
 
@@ -697,75 +720,19 @@ def start_login():
     data = request.get_json(silent=True) or {}
     identifier = (data.get("identifier") or "").strip()
     password = (data.get("password") or "").strip()
+    totp_code = (data.get("totp_code") or "").strip()
     if not (identifier and password):
         abort(400, "Username/email and password are required.")
 
     user = get_user_by_identifier(identifier)
     if user is None or not check_password_hash(user["password_hash"], password):
         abort(401, "Invalid credentials.")
-
-    verification = start_phone_verification(user["phone_number"], user["country_code"])
-    if not verification.get("success"):
-        abort(502, verification.get("message") or "Failed to send verification code.")
-
-    token = secrets.token_urlsafe(32)
-    now = int(time.time())
-    expires = now + LOGIN_TOKEN_TTL
-    db = get_db()
-    db.execute("DELETE FROM login_attempts WHERE expires_at < ?", (now,))
-    db.execute(
-        "INSERT INTO login_attempts (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        (token, user["id"], now, expires),
-    )
-    db.commit()
-    return (
-        jsonify(
-            {
-                "token": token,
-                "phone_hint": mask_phone_number(user["phone_number"]),
-                "expires_in": LOGIN_TOKEN_TTL,
-            }
-        ),
-        200,
-    )
-
-
-@app.route("/api/auth/verify", methods=["POST"])
-def verify_login():
-    init_db()
-    data = request.get_json(silent=True) or {}
-    token = data.get("token")
-    code = (data.get("code") or "").strip()
-    if not (token and code):
-        abort(400, "Token and verification code are required.")
-
-    db = get_db()
-    attempt = db.execute(
-        "SELECT token, user_id, expires_at, verified FROM login_attempts WHERE token = ?",
-        (token,),
-    ).fetchone()
-    if not attempt:
-        abort(400, "Verification session not found.")
-    if attempt["verified"]:
-        abort(400, "Verification code already used.")
-    now = int(time.time())
-    if attempt["expires_at"] < now:
-        abort(400, "Verification code has expired.")
-
-    user = db.execute(
-        "SELECT id, phone_number, country_code FROM users WHERE id = ?",
-        (attempt["user_id"],),
-    ).fetchone()
-
-    if not user:
-        abort(404, "User not found.")
-
-    verification = check_phone_verification(user["phone_number"], user["country_code"], code)
-    if not verification.get("success"):
-        abort(401, verification.get("message") or "Invalid verification code.")
-
-    db.execute("UPDATE login_attempts SET verified = 1 WHERE token = ?", (token,))
-    db.commit()
+    if user["mfa_secret"]:
+        if not totp_code:
+            abort(401, "Authenticator code is required.")
+        totp = pyotp.TOTP(user["mfa_secret"])
+        if not totp.verify(totp_code, valid_window=1):
+            abort(401, "Invalid authenticator code.")
     session["user_id"] = user["id"]
     needs_update = bool(user["must_update_credentials"])
     if needs_update:
@@ -775,6 +742,41 @@ def verify_login():
         session.pop("needs_update", None)
         target = "/app"
     return jsonify({"redirect": target})
+
+
+@app.route("/api/reset-pin", methods=["POST"])
+def reset_pin():
+    init_db()
+    data = request.get_json(silent=True) or {}
+    pin = (data.get("pin") or "").strip()
+    expected = session.get("reset_pin")
+    if not expected or pin != expected:
+        new_pin = _generate_reset_pin()
+        session["reset_pin"] = new_pin
+        app.logger.warning("Invalid reset pin provided; regenerating new pin %s", new_pin)
+        abort(403, "Invalid reset pin. A new pin has been generated.")
+    db = get_db()
+    user_id = _ensure_default_user(db)
+    db.commit()
+    session.pop("reset_pin", None)
+    session["user_id"] = user_id
+    session["needs_update"] = True
+    return jsonify({"redirect": "/account"})
+
+
+@app.route("/api/reset-account", methods=["POST"])
+def reset_account():
+    init_db()
+    data = request.get_json(silent=True) or {}
+    pin = (data.get("pin") or "").strip()
+    expected = session.get("reset_pin")
+    if not expected or pin != expected:
+        abort(403, "Invalid reset pin.")
+    db = get_db()
+    _ensure_default_user(db)
+    db.commit()
+    session.pop("reset_pin", None)
+    return jsonify({"success": True, "message": "Workspace reset to default account. Use the default credentials to log in."})
 
 
 @app.route("/projects/<project_id>")

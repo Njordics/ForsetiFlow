@@ -7,7 +7,7 @@ A minimal project/task tracker built with Flask and vanilla HTML/JS. Data is sto
 - Tasks, Backlogs, Sprints, and Resources with basic fields (status, due dates, notes, velocity, etc.)
 - Simple HTML UI powered by fetch calls to the REST API
 - SQLite database persisted in `instance/project_manager.sqlite` (configurable via `PROJECT_DB`)
-- Authy-backed login page that gates the `/app` workspace behind a two-step verification flow and forces credential rotation on first login
+- Login page that seeds a single admin user (`forseti` / `flow` by default) and immediately issues a session once the credentials match
 
 ## Installation & Running
 1) **Prerequisites**: Python 3.11+ and `pip` available in your PATH.
@@ -39,53 +39,39 @@ Data persists in `./data` directory. See environment variables below for configu
 | `PORT` | `51001` | Port the Flask server listens on |
 | `PROJECT_DATA_DIR` | `/app/instance` | Directory where SQLite database is stored |
 | `PROJECT_DB` | `project_manager.sqlite` | SQLite database filename |
-| `AUTHY_API_KEY` | *(not set)* | Twilio Authy API key used to send verification codes |
-| `AUTHY_API_URL` | `https://api.authy.com/protected/json` | Override if you are routing through a proxy |
-| `AUTHY_VERIFICATION_VIA` | `sms` | Channel used to deliver codes (`sms`, `call`, etc.) |
 | `FLASK_SECRET_KEY` | `dev-secret-key` | Secret key for Flask sessions and cookies |
-| `LOGIN_TOKEN_TTL` | `300` | Seconds before a login verification token expires |
-| `DEFAULT_ADMIN_USERNAME` | `admin` | Username for the seeded administrator account |
-| `DEFAULT_ADMIN_PASSWORD` | `forseti` | Initial password for the seeded administrator account |
-| `DEFAULT_ADMIN_EMAIL` | *(derived)* | Email stored for the seeded admin (defaults to `admin@example.com` when unset) |
-| `DEFAULT_ADMIN_PHONE` | *(not set)* | Phone number Authy will call/SMS for the seeded admin (required to seed the account) |
-| `DEFAULT_ADMIN_COUNTRY` | `1` | Country code used with the seeded admin phone number |
+| `DEFAULT_ADMIN_USERNAME` | `forseti` | Username for the seeded administrator account |
+| `DEFAULT_ADMIN_PASSWORD` | `flow` | Initial password for the seeded administrator account |
+| `DEFAULT_ADMIN_EMAIL` | *(not set)* | Email stored for the seeded admin (set `DEFAULT_ADMIN_EMAIL` to override) |
+| `DEFAULT_ADMIN_PHONE` | `0000000000` | Phone number stored for the seeded admin (shown when setting up MFA) |
+| `DEFAULT_ADMIN_COUNTRY` | `1` | Country code stored for the seeded admin phone number |
+| `MFA_ISSUER` | `Forseti Flow` | Issuer name displayed to authenticator apps when scanning the QR code |
 
 ## User setup
 
-Set `DEFAULT_ADMIN_PHONE` and `DEFAULT_ADMIN_COUNTRY` (plus optional `DEFAULT_ADMIN_EMAIL`) so the app can seed the administrator account with `DEFAULT_ADMIN_USERNAME`/`DEFAULT_ADMIN_PASSWORD` (defaults to `admin`/`forseti`). When the database contains only that default admin, the login page shows a simple username/password form (no Authy) that immediately redirects to `/account` so the admin can rotate credentials. After the admin changes their username/password, the normal Authy-backed flow resumes; once any user exists you must already be signed in (session cookie) before creating more users via `POST /api/users` using JSON such as `{ "username": "jdoe", "password": "secret", "phone_number": "1234567890", "country_code": "1", "email": "optional@example.com", "force_password_change": true }`.
-
-### Default Admin Login
-
-If there is only the seeded admin user (created from the environment defaults) and it still requires credential rotation, the login UI skips Authy and simply asks for the admin username/password. Successful sign-in immediately redirects to `/account` so the admin can pick a new username and/or password before the Authy-based flow becomes active again.
+Each initialization deletes every row from the `users` table and recreates the seeded administrator with the credentials and contact fields defined by `DEFAULT_ADMIN_USERNAME`, `DEFAULT_ADMIN_PASSWORD`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PHONE`, and `DEFAULT_ADMIN_COUNTRY` (defaults: `forseti` / `flow`, email unset, `0000000000`, and `1`). Because the default admin is the only persisted account, the registration UI and `/api/users` endpoint cannot produce lasting extra users—modify the environment variables before starting the server if you need different credentials.
+On first login the admin is redirected to `/account`, which now shows a QR code and manual secret for Google/Microsoft Authenticator. Completing the username/password change and entering the 6-digit code from the authenticator app stores the new OTP secret and unlocks `/app`.
 
 ## Authentication flow
 
-1. Submit credentials via `POST /api/auth/start` (handled automatically by the login UI) to receive a login token and prompt Authy to send a code to the stored phone number. This endpoint expects `identifier` (username or email) and `password`.
-2. Use the supplied token and the one-time code with `POST /api/auth/verify`. If the account still requires a credential rotation (e.g., the seeded admin), the server redirects to `/account`; otherwise it redirects to `/app` once the session is established.
+- Send `POST /api/auth/start` with `{ "identifier": "forseti", "password": "flow" }` (or whatever username/password you configured).
+- Include `totp_code` when the account already has an authenticator secret; the endpoint validates the OTP via `pyotp` and opens the session.
+- The server validates the credentials, creates a session, and responds with `{"redirect": "/app"}` (or `/account` if the user still requires credential rotation).
+
+## API Overview
+
+- `POST /api/users` – enforced to require a valid session and therefore unusable once the seeded admin exists.
+- `POST /api/auth/start` – log in with username/email and password to create a session and receive the redirect target.
+- `GET /api/projects`, `POST /api/projects`, and `GET /api/projects/<project_id>` – manage projects.
+- `GET /api/projects/<project_id>/tasks`, `POST /api/projects/<project_id>/tasks`, `PATCH /api/tasks/<task_id>`, `DELETE /api/tasks/<task_id>` – manipulate tasks.
+- `GET /api/backlogs/<project_id>` / `POST /api/backlogs/<project_id>` and `PATCH`/`DELETE /api/backlog/<item_id>` – handle backlogs.
+- `GET /api/sprints/<project_id>` / `POST /api/sprints/<project_id>` and `PATCH`/`DELETE /api/sprint/<sprint_id>` – handle sprints.
+- `GET /api/resources/<project_id>` / `POST /api/resources/<project_id>` and `PATCH`/`DELETE /api/resource/<resource_id>` – manage resources.
 
 ## Configuration & Data
 
 - Database file: `instance/project_manager.sqlite` (auto-created). Override with `PROJECT_DB=/path/to/db.sqlite`.
 - To reset data, stop the app and delete the SQLite file (or point `PROJECT_DB` to a new path).
-
--## API Overview
-- `POST /api/users` - register a new user (requires admin/session once a user exists)
-- `GET /api/auth/status` - check whether the default admin-only login mode is active
-- `POST /api/auth/simple-login` - sign in with username/password when only the default admin exists
-- `POST /api/auth/start` - begin Authy verification for a login attempt
-- `POST /api/auth/verify` - verify the one-time code and mint a session
-- `GET /api/projects` - list projects
-- `POST /api/projects` - create project `{ name, description? }`
-- `GET /api/projects/<project_id>/tasks` - list tasks
-- `POST /api/projects/<project_id>/tasks` - create task `{ title, due_date?, status }`
-- `PATCH /api/tasks/<task_id>` - update task fields
-- `DELETE /api/tasks/<task_id>` - delete task
-- `GET /api/backlogs/<project_id>` / `POST /api/backlogs/<project_id>` - list/create backlogs
-- `PATCH /api/backlog/<backlog_id>` / `DELETE /api/backlog/<backlog_id>` - update/delete backlog
-- `GET /api/sprints/<project_id>` / `POST /api/sprints/<project_id>` - list/create sprints
-- `PATCH /api/sprint/<sprint_id>` / `DELETE /api/sprint/<sprint_id>` - update/delete sprint
-- `GET /api/resources/<project_id>` / `POST /api/resources/<project_id>` - list/create resources
-- `PATCH /api/resource/<resource_id>` / `DELETE /api/resource/<resource_id>` - update/delete resource
 
 ## Notes
 - Debug mode is enabled by default in `app.py`; change `app.run(debug=True)` if needed.

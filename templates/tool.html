@@ -9,7 +9,7 @@
 <body>
   <div class="gradient-bg"></div>
   <a class="brand-logo" href="/">
-    <span>Forseti Flow</span>
+    <img src="/static/ForsetiLogo.png" alt="Forseti Flow logo" />
   </a>
 
   <main class="workspace project-page dashboard-page{% if tool == 'kanban' %} kanban-fullpage{% endif %}">
@@ -18,9 +18,6 @@
         <p class="eyebrow">Tool</p>
         <h1>{{ tool|capitalize }}</h1>
         <p class="project-desc">Focused view for this tool. Switch back to dashboard for combined flow.</p>
-      </div>
-      <div class="project-actions">
-        <span class="muted small">Full flow only</span>
       </div>
     </section>
 
@@ -72,19 +69,31 @@
       </div>
       <div class="kanban">
         <div class="kanban-column">
-          <div class="kanban-head">To do</div>
+          <div class="kanban-head">
+            <span>To do</span>
+            <button class="pill ghost tiny add-task-btn" type="button" data-status="todo">Add task</button>
+          </div>
           <div class="kanban-list" id="col-todo"></div>
         </div>
         <div class="kanban-column">
-          <div class="kanban-head">In progress</div>
+          <div class="kanban-head">
+            <span>In progress</span>
+            <button class="pill ghost tiny add-task-btn" type="button" data-status="in-progress">Add task</button>
+          </div>
           <div class="kanban-list" id="col-in-progress"></div>
         </div>
         <div class="kanban-column">
-          <div class="kanban-head">Done</div>
+          <div class="kanban-head">
+            <span>Done</span>
+            <button class="pill ghost tiny add-task-btn" type="button" data-status="done">Add task</button>
+          </div>
           <div class="kanban-list" id="col-done"></div>
         </div>
         <div class="kanban-column">
-          <div class="kanban-head">Later</div>
+          <div class="kanban-head">
+            <span>Later</span>
+            <button class="pill ghost tiny add-task-btn" type="button" data-status="later">Add task</button>
+          </div>
           <div class="kanban-list" id="col-later"></div>
         </div>
       </div>
@@ -382,8 +391,5 @@
   <script>
     if (window.initToolPage) window.initToolPage();
   </script>
-  <a class="signature-mark" href="https://github.com/Njordics" target="_blank" rel="noreferrer noopener">
-    <img src="/static/NjordSig.png" alt="Njord signature" />
-  </a>
 </body>
 </html>

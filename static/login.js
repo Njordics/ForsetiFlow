@@ -1,33 +1,18 @@
 (() => {
   const loginForm = document.getElementById("login-form");
-  const verificationForm = document.getElementById("verification-form");
   const statusEl = document.getElementById("login-status");
-  const codeInput = document.getElementById("login-code");
-  const resendButton = document.getElementById("resend-code");
-  const backButton = document.getElementById("back-to-login");
-  let pendingToken = null;
-  let lastCredentials = null;
+  const brandLogo = document.querySelector(".brand-logo");
+  const resetModal = document.getElementById("reset-modal");
+  const resetForm = document.getElementById("reset-form");
+  const resetStatus = document.getElementById("reset-status");
+  const resetClose = document.getElementById("reset-modal-close");
+  const resetCancel = document.getElementById("reset-modal-cancel");
 
   const setStatus = (message, variant = "muted") => {
     if (!statusEl) return;
     statusEl.textContent = message;
     statusEl.classList.toggle("error", variant === "error");
     statusEl.classList.toggle("muted", variant !== "error");
-  };
-
-  const showVerificationForm = (hint) => {
-    if (!verificationForm || !loginForm) return;
-    loginForm.classList.add("hidden");
-    verificationForm.classList.remove("hidden");
-    setStatus(hint ? `Code sent to ${hint}.` : "Code sent to your phone.");
-    codeInput?.focus();
-  };
-
-  const showLoginForm = () => {
-    pendingToken = null;
-    verificationForm?.classList.add("hidden");
-    loginForm?.classList.remove("hidden");
-    setStatus("");
   };
 
   async function parseResponse(response) {
@@ -63,52 +48,23 @@
     const data = Object.fromEntries(new FormData(loginForm).entries());
     const identifier = (data.identifier || "").trim();
     const password = data.password || "";
+    const totp_code = (data.totp_code || "").trim();
     if (!identifier || !password) {
       setStatus("Username/email and password are required.", "error");
       return null;
     }
-    return { identifier, password };
+    return { identifier, password, totp_code };
   };
 
-  const requestCode = async (credentials) => {
-    try {
-      setStatus("Sending verification code…");
-      const payload = await safeFetch("/api/auth/start", {
-        method: "POST",
-        body: JSON.stringify(credentials),
-      });
-      pendingToken = payload.token;
-      lastCredentials = credentials;
-      showVerificationForm(payload.phone_hint);
-    } catch (err) {
-      setStatus(err.message, "error");
-    }
-  };
-
-  loginForm?.addEventListener("submit", (event) => {
+  loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const credentials = extractCredentials();
     if (!credentials) return;
-    requestCode(credentials);
-  });
-
-  verificationForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!pendingToken) {
-      setStatus("Verification expired. Please sign in again.", "error");
-      showLoginForm();
-      return;
-    }
-    const code = (new FormData(verificationForm).get("code") || "").trim();
-    if (!code) {
-      setStatus("Enter the verification code.", "error");
-      return;
-    }
     try {
-      setStatus("Verifying code…");
-      const result = await safeFetch("/api/auth/verify", {
+      setStatus("Signing in...");
+      const result = await safeFetch("/api/auth/start", {
         method: "POST",
-        body: JSON.stringify({ token: pendingToken, code }),
+        body: JSON.stringify(credentials),
       });
       window.location.href = result.redirect || "/app";
     } catch (err) {
@@ -116,18 +72,37 @@
     }
   });
 
-  resendButton?.addEventListener("click", (event) => {
+  const openResetModal = (event) => {
+    event?.preventDefault();
+    resetStatus.textContent = "";
+    resetModal?.classList.remove("hidden");
+  };
+
+  const closeResetModal = () => {
+    resetModal?.classList.add("hidden");
+  };
+
+  brandLogo?.addEventListener("click", openResetModal);
+  resetClose?.addEventListener("click", closeResetModal);
+  resetCancel?.addEventListener("click", closeResetModal);
+  resetModal?.addEventListener("click", (event) => {
+    if (event.target === resetModal) closeResetModal();
+  });
+
+  resetForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!lastCredentials) {
-      setStatus("Submit your credentials before requesting another code.", "error");
-      return;
+    const data = Object.fromEntries(new FormData(resetForm).entries());
+    if (!data.pin) return;
+    try {
+      resetStatus.textContent = "Verifying pin...";
+      const response = await safeFetch("/api/reset-pin", {
+        method: "POST",
+        body: JSON.stringify({ pin: data.pin }),
+      });
+      resetStatus.textContent = "Pin accepted. Redirecting...";
+      window.location.href = response.redirect || "/account";
+    } catch (err) {
+      resetStatus.textContent = err.message;
     }
-    requestCode(lastCredentials);
   });
-
-  backButton?.addEventListener("click", (event) => {
-    event.preventDefault();
-    showLoginForm();
-  });
-
 })();

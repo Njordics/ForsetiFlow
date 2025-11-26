@@ -9,7 +9,7 @@
   <body>
     <div class="gradient-bg"></div>
     <a class="brand-logo" href="/">
-      <span>Forseti Flow</span>
+      <img src="/static/ForsetiLogo.png" alt="Forseti Flow logo" />
     </a>
     <main class="login-page">
       <article class="login-card">
@@ -60,6 +60,31 @@
             <span>Confirm new password</span>
             <input type="password" name="confirm_password" autocomplete="new-password" />
           </label>
+          {% if mfa_setup_required %}
+          <div class="mfa-setup">
+            <p class="muted login-hint">
+              Scan the QR code below with Google or Microsoft Authenticator, then enter the six-digit code.
+            </p>
+            {% if mfa_qr %}
+            <img src="{{ mfa_qr }}" alt="Authenticator setup QR code" class="mfa-qr" />
+            {% endif %}
+            <p class="muted login-hint">
+              Secret: <code>{{ mfa_secret or "provided by the app" }}</code>
+            </p>
+            <label>
+              <span>Authenticator code</span>
+              <input
+                type="text"
+                name="totp_code"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                placeholder="123456"
+                required
+                autocomplete="one-time-code"
+              />
+            </label>
+          </div>
+          {% endif %}
           <button type="submit" class="pill primary">
             {% if requires_update %}Save & Continue{% else %}Save changes{% endif %}
           </button>

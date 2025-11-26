@@ -25,3 +25,9 @@ Thumbs.db
 # Flask instance folder
 instance/*
 !instance/project_manager.sqlite
+temp_pycache/
+temp_mod.py
+temp_replace_password.py
+temp_login_replace.py
+temp_login_script.py
+check_tables.py

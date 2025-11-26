@@ -10,14 +10,14 @@
   <body>
     <div class="gradient-bg"></div>
     <a class="brand-logo" href="/">
-      <span>Forseti Flow</span>
+      <img src="/static/ForsetiLogo.png" alt="Forseti Flow logo" />
     </a>
     <main class="login-page">
       <article class="login-card">
         <div>
           <p class="eyebrow">Forseti Flow</p>
           <h1>Secure project control</h1>
-          <p class="lede">Sign in and double-check with Authy before you manage your workspaces.</p>
+          <p class="lede">Sign in to manage your workspace with confidence.</p>
         </div>
         <form id="login-form" class="login-form" autocomplete="off">
           <label>
@@ -32,35 +32,29 @@
           </label>
           <label>
             <span>Password</span>
-            <input type="password" name="password" placeholder="••••••••" required />
+            <input type="password" name="password" placeholder="********" required />
           </label>
-          <button type="submit" class="pill primary">Send verification code</button>
-        </form>
-        <form id="verification-form" class="login-form hidden" autocomplete="off">
           <label>
-            <span>Authentication code</span>
+            <span>Authenticator code</span>
             <input
-              id="login-code"
               type="text"
-              name="code"
+              name="totp_code"
               inputmode="numeric"
               pattern="[0-9]*"
               placeholder="123456"
               autocomplete="one-time-code"
-              required
             />
           </label>
-          <div class="login-actions">
-            <button type="button" id="back-to-login" class="pill ghost">Use different credentials</button>
-            <button type="submit" class="pill primary">Verify code</button>
-          </div>
-          <button type="button" id="resend-code" class="pill ghost">Resend code</button>
+          <p class="muted login-hint">
+            Enter the code from your Google or Microsoft Authenticator app if you already configured MFA.
+          </p>
+          <button type="submit" class="pill primary">Sign in</button>
         </form>
         <div id="login-status" class="login-status muted" aria-live="polite">
           {{ oauth_error or "" }}
         </div>
         <p class="muted login-hint">
-          Authy protects this workspace with two-step verification. Admins can configure numbers before you sign in.
+          Use your workspace credentials to stay in control of projects and plans.
         </p>
         {% if oauth_providers %}
         <div class="oauth-section">
@@ -83,6 +77,29 @@
         {% endif %}
         <a class="pill ghost login-guest" href="/app">Continue without login</a>
       </article>
+      <div class="modal-backdrop reset-modal hidden" id="reset-modal">
+        <div class="modal small">
+          <header>
+            <h3>Reset account</h3>
+            <button class="pill ghost tiny" type="button" id="reset-modal-close">Close</button>
+          </header>
+          <p class="muted login-hint">
+            Enter the reset pin (check the server log) to unlock the Forseti Flow reset page where you can change the
+            username, password, and authenticator setup.
+          </p>
+          <form id="reset-form" class="form-grid" autocomplete="off">
+              <label>
+                <span>Reset pin</span>
+                <input type="text" name="pin" required inputmode="numeric" maxlength="6" placeholder="123456" />
+              </label>
+            <div class="actions">
+              <button class="pill ghost" type="button" id="reset-modal-cancel">Cancel</button>
+              <button class="pill primary" type="submit">Verify & reset</button>
+            </div>
+          </form>
+          <div id="reset-status" class="login-status muted" aria-live="polite"></div>
+        </div>
+      </div>
     </main>
   </body>
 </html>
