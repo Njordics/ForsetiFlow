@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MSP Dashboard | Forseti Flow</title>
+    <link rel="stylesheet" href="/static/main.css" />
+  </head>
+  <body>
+    <div class="gradient-bg"></div>
+    <a class="brand-logo" href="/">
+      <img src="/static/ForsetiLogo.png" alt="Forseti Flow logo" />
+    </a>
+    <main class="msp-page">
+      <article class="login-card msp-card">
+        <div>
+          <p class="eyebrow">Forseti Flow MSP</p>
+          <h1 class="lede">Launch your tools</h1>
+          <p class="muted">
+            Choose a workspace you already know or explore our specialist MSP modules. Each card links to a toolset,
+            starting with Project Management.
+          </p>
+        </div>
+        <section class="tool-hub">
+          {% for tool in tools %}
+          <article class="tool-card">
+            <header>
+              <h2>{{ tool.label }}</h2>
+              {% if tool.status != "active" %}
+              <span class="badge">{{ tool.status | capitalize }}</span>
+              {% endif %}
+            </header>
+            <p>{{ tool.description }}</p>
+            <div class="actions">
+              {% if tool.status == "active" %}
+              <a class="pill primary" href="{{ tool.link }}">Open</a>
+              {% else %}
+              <a class="pill primary disabled" href="#" aria-disabled="true">Coming soon</a>
+              {% endif %}
+            </div>
+          </article>
+          {% endfor %}
+        </section>
+      </article>
+    </main>
+  </body>
+</html>
