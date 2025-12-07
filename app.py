@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import pyotp
 import qrcode
+from datetime import datetime
 from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, render_template, request, jsonify, abort, g, session, redirect, url_for
@@ -371,6 +372,117 @@ def init_db():
         db.execute("UPDATE users SET must_update_credentials = 0 WHERE must_update_credentials IS NULL")
     except sqlite3.OperationalError:
         pass
+    
+    # Kanban enhancement: Add fields to tasks table
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN story_points INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN cover_color TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN labels TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Task labels table (many-to-many)
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_labels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            label_name TEXT NOT NULL,
+            label_color TEXT DEFAULT '#808080',
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            UNIQUE(task_id, label_name)
+        )
+        """
+    )
+    
+    # Task comments/activity
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            comment_text TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    
+    # Task checklists
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_checklists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            checklist_title TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    
+    # Checklist items
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS checklist_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            checklist_id INTEGER NOT NULL,
+            item_text TEXT NOT NULL,
+            is_complete INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(checklist_id) REFERENCES task_checklists(id) ON DELETE CASCADE
+        )
+        """
+    )
+    
+    # Task attachments
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            file_url TEXT NOT NULL,
+            file_size INTEGER,
+            uploaded_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+        """
+    )
+    
+    # Project labels (predefined colors/tags)
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_labels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            label_name TEXT NOT NULL,
+            label_color TEXT DEFAULT '#808080',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(project_id, label_name),
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+        """
+    )
+    
     db.commit()
     _ensure_default_user(db)
     db.commit()
@@ -818,14 +930,24 @@ def list_tasks(project_id: str):
     db = get_db()
     rows = db.execute(
         """
-        SELECT id, project_id, title, description, status, due_date, parent_id
+        SELECT id, project_id, title, description, status, due_date, parent_id, story_points, cover_color, labels, created_at, updated_at
         FROM tasks
         WHERE project_id = ?
         ORDER BY id
         """,
         (project_id,),
     ).fetchall()
-    return jsonify([dict(r) for r in rows])
+    result = []
+    for row in rows:
+        task_dict = dict(row)
+        # Fetch labels for each task
+        labels = db.execute(
+            "SELECT label_name, label_color FROM task_labels WHERE task_id = ?",
+            (row["id"],),
+        ).fetchall()
+        task_dict["task_labels"] = [dict(label) for label in labels]
+        result.append(task_dict)
+    return jsonify(result)
 
 
 @app.route("/api/projects/<project_id>/tasks", methods=["POST"])
@@ -903,13 +1025,318 @@ def update_task(task_id: str):
             parent_id = None
         db.execute("UPDATE tasks SET parent_id = ? WHERE id = ?", (parent_id, task_id))
     # Ignore resource updates in single-user mode
+    
+    # Handle new Kanban-enhanced fields
+    if "story_points" in data:
+        story_points = data.get("story_points")
+        if story_points is not None and isinstance(story_points, (int, float)):
+            db.execute("UPDATE tasks SET story_points = ? WHERE id = ?", (int(story_points), task_id))
+    if "cover_color" in data:
+        cover_color = (data.get("cover_color") or "").strip()
+        db.execute("UPDATE tasks SET cover_color = ? WHERE id = ?", (cover_color, task_id))
+    if "labels" in data:
+        labels_text = (data.get("labels") or "").strip()
+        db.execute("UPDATE tasks SET labels = ? WHERE id = ?", (labels_text, task_id))
 
     db.commit()
     updated = db.execute(
-        "SELECT id, project_id, title, description, status, due_date, parent_id FROM tasks WHERE id = ?",
+        "SELECT id, project_id, title, description, status, due_date, parent_id, story_points, cover_color, labels FROM tasks WHERE id = ?",
         (task_id,),
     ).fetchone()
     return jsonify(dict(updated))
+
+
+@app.route("/api/tasks/<task_id>/labels", methods=["GET"])
+@login_required
+def get_task_labels(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    rows = db.execute(
+        "SELECT id, label_name, label_color FROM task_labels WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/tasks/<task_id>/labels", methods=["POST"])
+@login_required
+def add_task_label(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    data = request.get_json(silent=True) or {}
+    label_name = (data.get("label_name") or "").strip()
+    if not label_name:
+        abort(400, "Label name is required.")
+    label_color = (data.get("label_color") or "#808080").strip()
+    try:
+        db.execute(
+            "INSERT INTO task_labels (task_id, label_name, label_color) VALUES (?, ?, ?)",
+            (task_id, label_name, label_color),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"message": "Label already exists"}), 409
+    return jsonify({"label_name": label_name, "label_color": label_color}), 201
+
+
+@app.route("/api/tasks/<task_id>/labels/<label_name>", methods=["DELETE"])
+@login_required
+def remove_task_label(task_id: str, label_name: str):
+    init_db()
+    db = get_db()
+    db.execute(
+        "DELETE FROM task_labels WHERE task_id = ? AND label_name = ?",
+        (task_id, label_name),
+    )
+    db.commit()
+    return "", 204
+
+
+@app.route("/api/tasks/<task_id>/comments", methods=["GET"])
+@login_required
+def get_task_comments(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    rows = db.execute(
+        "SELECT id, user_id, comment_text, created_at FROM task_comments WHERE task_id = ? ORDER BY created_at DESC",
+        (task_id,),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/tasks/<task_id>/comments", methods=["POST"])
+@login_required
+def add_task_comment(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    user_id = session.get("user_id")
+    if not user_id:
+        abort(401, "Not authenticated.")
+    data = request.get_json(silent=True) or {}
+    comment_text = (data.get("comment_text") or "").strip()
+    if not comment_text:
+        abort(400, "Comment text is required.")
+    cur = db.execute(
+        "INSERT INTO task_comments (task_id, user_id, comment_text) VALUES (?, ?, ?)",
+        (task_id, user_id, comment_text),
+    )
+    db.commit()
+    return jsonify({
+        "id": cur.lastrowid,
+        "task_id": int(task_id),
+        "user_id": user_id,
+        "comment_text": comment_text,
+        "created_at": datetime.now().isoformat(),
+    }), 201
+
+
+@app.route("/api/tasks/<task_id>/comments/<comment_id>", methods=["DELETE"])
+@login_required
+def delete_task_comment(task_id: str, comment_id: str):
+    init_db()
+    db = get_db()
+    comment = db.execute(
+        "SELECT id, user_id FROM task_comments WHERE id = ? AND task_id = ?",
+        (comment_id, task_id),
+    ).fetchone()
+    if not comment:
+        abort(404, "Comment not found.")
+    user_id = session.get("user_id")
+    if comment["user_id"] != user_id:
+        abort(403, "You can only delete your own comments.")
+    db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
+    db.commit()
+    return "", 204
+
+
+@app.route("/api/tasks/<task_id>/checklists", methods=["GET"])
+@login_required
+def get_task_checklists(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    rows = db.execute(
+        "SELECT id, checklist_title, created_at FROM task_checklists WHERE task_id = ? ORDER BY id",
+        (task_id,),
+    ).fetchall()
+    result = []
+    for row in rows:
+        items = db.execute(
+            "SELECT id, item_text, is_complete FROM checklist_items WHERE checklist_id = ? ORDER BY id",
+            (row["id"],),
+        ).fetchall()
+        result.append({
+            **dict(row),
+            "items": [dict(item) for item in items],
+        })
+    return jsonify(result)
+
+
+@app.route("/api/tasks/<task_id>/checklists", methods=["POST"])
+@login_required
+def create_task_checklist(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    data = request.get_json(silent=True) or {}
+    checklist_title = (data.get("checklist_title") or "Checklist").strip()
+    cur = db.execute(
+        "INSERT INTO task_checklists (task_id, checklist_title) VALUES (?, ?)",
+        (task_id, checklist_title),
+    )
+    db.commit()
+    return jsonify({
+        "id": cur.lastrowid,
+        "task_id": int(task_id),
+        "checklist_title": checklist_title,
+        "items": [],
+    }), 201
+
+
+@app.route("/api/checklists/<checklist_id>/items", methods=["POST"])
+@login_required
+def add_checklist_item(checklist_id: str):
+    init_db()
+    db = get_db()
+    checklist = db.execute(
+        "SELECT id FROM task_checklists WHERE id = ?",
+        (checklist_id,),
+    ).fetchone()
+    if not checklist:
+        abort(404, "Checklist not found.")
+    data = request.get_json(silent=True) or {}
+    item_text = (data.get("item_text") or "").strip()
+    if not item_text:
+        abort(400, "Item text is required.")
+    cur = db.execute(
+        "INSERT INTO checklist_items (checklist_id, item_text, is_complete) VALUES (?, ?, 0)",
+        (checklist_id, item_text),
+    )
+    db.commit()
+    return jsonify({
+        "id": cur.lastrowid,
+        "checklist_id": int(checklist_id),
+        "item_text": item_text,
+        "is_complete": 0,
+    }), 201
+
+
+@app.route("/api/checklist-items/<item_id>", methods=["PATCH"])
+@login_required
+def update_checklist_item(item_id: str):
+    init_db()
+    db = get_db()
+    item = db.execute(
+        "SELECT id, is_complete FROM checklist_items WHERE id = ?",
+        (item_id,),
+    ).fetchone()
+    if not item:
+        abort(404, "Checklist item not found.")
+    data = request.get_json(silent=True) or {}
+    if "is_complete" in data:
+        is_complete = 1 if data.get("is_complete") else 0
+        db.execute(
+            "UPDATE checklist_items SET is_complete = ? WHERE id = ?",
+            (is_complete, item_id),
+        )
+    if "item_text" in data:
+        item_text = (data.get("item_text") or "").strip()
+        if item_text:
+            db.execute(
+                "UPDATE checklist_items SET item_text = ? WHERE id = ?",
+                (item_text, item_id),
+            )
+    db.commit()
+    return "", 204
+
+
+@app.route("/api/checklist-items/<item_id>", methods=["DELETE"])
+@login_required
+def delete_checklist_item(item_id: str):
+    init_db()
+    db = get_db()
+    db.execute("DELETE FROM checklist_items WHERE id = ?", (item_id,))
+    db.commit()
+    return "", 204
+
+
+@app.route("/api/tasks/<task_id>/attachments", methods=["GET"])
+@login_required
+def get_task_attachments(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    rows = db.execute(
+        "SELECT id, file_name, file_url, file_size, created_at FROM task_attachments WHERE task_id = ? ORDER BY created_at DESC",
+        (task_id,),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/tasks/<task_id>/attachments", methods=["POST"])
+@login_required
+def add_task_attachment(task_id: str):
+    init_db()
+    db = get_db()
+    task = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        abort(404, "Task not found.")
+    user_id = session.get("user_id")
+    if not user_id:
+        abort(401, "Not authenticated.")
+    data = request.get_json(silent=True) or {}
+    file_name = (data.get("file_name") or "").strip()
+    file_url = (data.get("file_url") or "").strip()
+    if not file_name or not file_url:
+        abort(400, "File name and URL are required.")
+    file_size = data.get("file_size")
+    cur = db.execute(
+        "INSERT INTO task_attachments (task_id, file_name, file_url, file_size, uploaded_by) VALUES (?, ?, ?, ?, ?)",
+        (task_id, file_name, file_url, file_size, user_id),
+    )
+    db.commit()
+    return jsonify({
+        "id": cur.lastrowid,
+        "task_id": int(task_id),
+        "file_name": file_name,
+        "file_url": file_url,
+        "file_size": file_size,
+        "created_at": datetime.now().isoformat(),
+    }), 201
+
+
+@app.route("/api/tasks/<task_id>/attachments/<attachment_id>", methods=["DELETE"])
+@login_required
+def delete_task_attachment(task_id: str, attachment_id: str):
+    init_db()
+    db = get_db()
+    attachment = db.execute(
+        "SELECT id FROM task_attachments WHERE id = ? AND task_id = ?",
+        (attachment_id, task_id),
+    ).fetchone()
+    if not attachment:
+        abort(404, "Attachment not found.")
+    db.execute("DELETE FROM task_attachments WHERE id = ?", (attachment_id,))
+    db.commit()
+    return "", 204
 
 
 @app.route("/api/backlogs/<project_id>", methods=["GET"])

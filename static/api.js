@@ -4,9 +4,14 @@ window.api = async function api(path, options = {}) {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  const text = await res.text();
   if (!res.ok) {
-    const message = await res.text();
-    throw new Error(message || res.statusText);
+    throw new Error(text || res.statusText);
   }
-  return res.json();
+  if (!text) return null; // tolerate empty/204 responses to avoid JSON parse errors
+  try {
+    return JSON.parse(text);
+  } catch (_err) {
+    return text;
+  }
 };
